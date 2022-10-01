@@ -43,6 +43,7 @@ type mongoDB struct {
 	Wc                int      `json:"wc"`
 	FSync             bool     `json:"fsync"`
 	Bulk              bool     `json:"bulk"`
+	Set               bool     `json:"set"`
 	CollectionFilters string   `json:"collection_filters"`
 	ReadPreference    string   `json:"read_preference"`
 }
@@ -79,7 +80,7 @@ func (m *mongoDB) Reader() (client.Reader, error) {
 
 func (m *mongoDB) Writer(done chan struct{}, wg *sync.WaitGroup) (client.Writer, error) {
 	if m.Bulk {
-		return newBulker(done, wg), nil
+		return newBulker(done, wg, m.Set), nil
 	}
 	return newWriter(), nil
 }

@@ -72,6 +72,7 @@ type Client struct {
 	tlsConfig         *tls.Config
 	sessionTimeout    time.Duration
 	tail              bool
+	set               bool
 	readPreference    mgo.Mode
 	maxWriteBatchSize int
 
@@ -211,6 +212,15 @@ func WithTail(tail bool) ClientOptionFunc {
 		return nil
 	}
 }
+
+// WithSet set the flag to tell the Client whether or not set data to db
+// needed (Default: false).
+//func WithSet(set bool) ClientOptionFunc {
+//	return func(c *Client) error {
+//		c.set = set
+//		return nil
+//	}
+//}
 
 // WithReadPreference sets the MongoDB read preference based on the provided string.
 func WithReadPreference(readPreference string) ClientOptionFunc {

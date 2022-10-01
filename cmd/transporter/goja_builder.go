@@ -267,8 +267,10 @@ func (n *Node) Save(call goja.FunctionCall) goja.Value {
 }
 
 func (tf *Transformer) Save(call goja.FunctionCall) goja.Value {
+	fmt.Println("******* ", call.Arguments)
 	name, out, namespace := exportArgs(call.Arguments)
 	a := out.(Adaptor)
+	fmt.Printf("******* %+v", a.a)
 	options := []pipeline.OptionFunc{
 		pipeline.WithParent(tf.source),
 		pipeline.WithClient(a.a),

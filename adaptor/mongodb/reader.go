@@ -64,6 +64,7 @@ func (r *Reader) Read(resumeMap map[string]client.MessageSet, filterFn client.Ns
 					oplogTime = timeAsMongoTimestamp(time.Unix(m.Timestamp, 0))
 				}
 				if mode == commitlog.Copy {
+					// 全量拷贝
 					if err := r.iterateCollection(r.iterate(lastID, session.Copy(), c), out, done, int64(oplogTime)>>32); err != nil {
 						log.With("db", session.DB("").Name).Errorln(err)
 						return

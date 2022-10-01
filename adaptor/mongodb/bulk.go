@@ -1,6 +1,7 @@
 package mongodb
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -26,6 +27,7 @@ type Bulk struct {
 	bulkMap map[string]*bulkOperation
 	*sync.RWMutex
 	confirmChan chan struct{}
+	Set         bool
 }
 
 type bulkOperation struct {
@@ -35,10 +37,11 @@ type bulkOperation struct {
 	bsonOpSize int
 }
 
-func newBulker(done chan struct{}, wg *sync.WaitGroup) *Bulk {
+func newBulker(done chan struct{}, wg *sync.WaitGroup, set bool) *Bulk {
 	b := &Bulk{
 		bulkMap: make(map[string]*bulkOperation),
 		RWMutex: &sync.RWMutex{},
+		Set:     set,
 	}
 	wg.Add(1)
 	go b.run(done, wg)
@@ -61,7 +64,7 @@ func (b *Bulk) Write(msg message.Msg) func(client.Session) (message.Msg, error) 
 		}
 		bs, err := bson.Marshal(msg.Data())
 		if err != nil {
-      log.Infof("unable to marshal doc to BSON, can't calculate size: %v", err)
+			log.Infof("unable to marshal doc to BSON, can't calculate size: %v", err)
 		}
 		// add the 4 bytes for the MsgHeader
 		// https://docs.mongodb.com/manual/reference/mongodb-wire-protocol/#standard-message-header
@@ -83,20 +86,51 @@ func (b *Bulk) Write(msg message.Msg) func(client.Session) (message.Msg, error) 
 			}
 			b.bulkMap[coll] = bOp
 		}
-
-		switch msg.OP() {
-		case ops.Delete:
-			bOp.bulk.Remove(bson.M{"_id": msg.Data().Get("_id")})
-		case ops.Insert:
-			bOp.bulk.Insert(msg.Data())
-		case ops.Update:
-			bOp.bulk.Update(bson.M{"_id": msg.Data().Get("_id")}, msg.Data())
+		if b.Set {
+			bulkSet(msg, bOp)
+		} else {
+			fmt.Println("bulk write")
+			bulkWrite(msg, bOp)
 		}
 		bOp.bsonOpSize += msgSize
 		bOp.opCounter++
 		b.Unlock()
 		return msg, err
 	}
+}
+func bulkWrite(msg message.Msg, bOp *bulkOperation) {
+	switch msg.OP() {
+	case ops.Delete:
+		bOp.bulk.Remove(bson.M{"_id": msg.Data().Get("_id")})
+	case ops.Insert:
+		bOp.bulk.Insert(msg.Data())
+	case ops.Update:
+		bOp.bulk.Update(bson.M{"_id": msg.Data().Get("_id")}, msg.Data())
+
+	}
+}
+func bulkSet(msg message.Msg, bOp *bulkOperation) {
+	id, dataKey := getSetDataInfo(msg)
+	fmt.Println("bulkset: ", id, dataKey)
+	switch msg.OP() {
+	case ops.Delete:
+		bOp.bulk.Remove(bson.M{"_id": id})
+	case ops.Insert:
+		bOp.bulk.Upsert(bson.M{"_id": id}, bson.M{"$set": bson.M{dataKey: msg.Data()}})
+	case ops.Update:
+		bOp.bulk.Update(bson.M{"_id": id}, bson.M{"$set": bson.M{dataKey: msg.Data()}})
+	}
+}
+func getSetDataInfo(msg message.Msg) (string, string) {
+	dataKey := "nodeInfo"
+	id := msg.Data().Get("nodeId")
+	fmt.Println(id, dataKey)
+	if id == nil {
+		dataKey = "nodeStaticInfo"
+		id = msg.Data().Get("_id")
+	}
+	fmt.Println(id, dataKey)
+	return id.(string), dataKey
 }
 
 func (b *Bulk) run(done chan struct{}, wg *sync.WaitGroup) {
@@ -132,7 +166,9 @@ func (b *Bulk) flushAll() error {
 	return nil
 }
 
+// bOp.Bulk.actions:[{op:1 docs:[map[_id:002a3e275fb274a9795034643548d322,....]]}] 得到具体数据
 func (b *Bulk) flush(c string, bOp *bulkOperation) error {
+	log.Infof("****** %+v", c)
 	log.With("collection", c).With("opCounter", bOp.opCounter).With("bsonOpSize", bOp.bsonOpSize).Infoln("flushing bulk messages")
 	_, err := bOp.bulk.Run()
 	if err != nil && !mgo.IsDup(err) {
